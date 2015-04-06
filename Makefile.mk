@@ -1,12 +1,21 @@
 ############################################################################
 # User-definable settings:
 
+OS = linux
+
+ifeq ($(OS), linux)
+AVR_TOOLS_PATH = /usr/bin
+AVRDUDE_CONF = /etc/avrdude.conf
+endif
+
+ifeq ($(OS), osx)
 AVR_PATH = /Applications/Arduino-1.6.0.app/Contents/Resources/Java/hardware/tools/avr
 #AVR_PATH = /Applications/Arduino.app/Contents/Resources/Java/hardware/tools/avr
 #AVR_PATH = /usr/local/CrossPack-AVR
-
 AVR_TOOLS_PATH = $(AVR_PATH)/bin
 AVRDUDE_CONF = $(AVR_PATH)/etc/avrdude.conf
+endif
+
 AVRDUDE_PROGRAMMER = avrisp2
 AVRDUDE_PORT = /dev/tty.usbmodem00028961
 UPLOAD_RATE = 115200
