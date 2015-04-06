@@ -1,7 +1,7 @@
 ############################################################################
 # User-definable settings:
 
-OS = linux
+OS = osx
 
 ifeq ($(OS), linux)
 AVR_TOOLS_PATH = /usr/bin
