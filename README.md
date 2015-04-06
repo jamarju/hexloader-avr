@@ -100,7 +100,7 @@ This all works without any kind of flow control as long as data comes in at a sl
 
 In practical terms, I've tested at 230.4 Kbps but that results in rx errors. This might be caused by 230400 not being an exact divisor of the CPU frequency (16 MHz), which results in some clock skew. Perhaps using a clock that is multiple of 230400, like 14.7456 MHz would work without issues.
 
-## How to compile
+## How to compile and flash
 
 Edit the user-definable settings at the beginning of Makefile.mk. You need avr-gcc. The easiest to get it is by installing the Arduino IDE, then point `AVR_PATH` to the avr toolchain path (eg. /Applications/Arduino.app/Contents/Resources/Java/hardware/tools/avr in OS X).
 
@@ -109,6 +109,8 @@ make isp
 ```
 
 This will compile and try to flash using the programmer defined in `AVRDUDE_PROGRAMMER` (avrisp2 by default).
+
+There is also a precompiled version under hexloader/build.
 
 ## Limitations and porting to other platforms
 
