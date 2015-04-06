@@ -862,15 +862,18 @@ void bootloader()
  */
 int main() {
     // Disable the watchdog if set
+    uint8_t mcusr = MCUSR;
     if (MCUSR & _BV(WDRF)) {
         MCUSR &= ~_BV(WDRF);
         wdt_disable();
     }
 
-    // Boot into app if any of:
-    // - just powered on (no external or watchdog reset)
-    // - bootloader 0xb0aa signature found (boot into app)
-    if (!(MCUSR & (_BV(EXTRF) | _BV(WDRF))) || BOOT_APP()) {
+    // Boot into app if
+    // (just powered on (no external or watchdog reset), 
+    // OR bootloader 0xb0aa signature found (boot into app))
+    // AND (program memory is not empty)
+    if ((!(mcusr & (_BV(EXTRF) | _BV(WDRF))) || BOOT_APP())
+            && pgm_read_word(0) != 0xffff) {
         // Pass the reboot reason (MCUSR) to the app and clear it
         r2 = r3 = 0;
         asm("jmp 0");
