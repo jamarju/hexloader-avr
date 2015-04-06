@@ -18,11 +18,11 @@ int main()
     uart_init();
     sei();
 
-    uart_send_string(PSTR("Hello world, press R to reboot\r\n"));
+    uart_send_string(PSTR("Hello world, press 'r' to reboot\r\n"));
 
     while (1)
         if (uart_available())
-            if (uart_recv_byte() == 'R')
+            if (uart_recv_byte() == 'r')
                 reset();
 }
 

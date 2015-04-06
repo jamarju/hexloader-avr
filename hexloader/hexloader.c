@@ -72,7 +72,7 @@
 // Variables
 
 /**
- * Boot signature
+ * Boot signature.
  * Registers r2 and r3 are used to switch between bootloader and app at
  * reset time.
  */
@@ -862,8 +862,8 @@ void bootloader()
  */
 int main() {
     // Disable the watchdog if set
-    if ((MCUSR & _BV(WDRF)) && BOOT_APP()) {
-        // MCUSR &= ~_BV(WDRF);
+    if (MCUSR & _BV(WDRF)) {
+        MCUSR &= ~_BV(WDRF);
         wdt_disable();
     }
 
