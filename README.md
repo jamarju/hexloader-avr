@@ -94,7 +94,28 @@ The asm instruccion `mov r2, 0` ensures that the 'boot to app' signature is not 
 
 Hexloader works by taking an Intel Hex file sent over the serial port. Hex files are the compilation output of Arduino or avr-gcc + objcopy. Pasting it directly on a terminal emulator flashes the chip. You can use any terminal like putty, screen, cu, hyperterminal, etc.
 
-Internally, a FIFO buffer queues up data as it comes in. Every line in the hex file is checksummed, plus there are other consistency checks like making sure addresses start at 0 and are monotonically increasing. After receiving 128 bytes, the current page is erased and flashed while more data for the next page queues up in pipeline.
+Internally, a FIFO buffer queues up data as it comes in. Every line in the hex file is checksummed, plus there are other consistency checks like making sure addresses start at 0 and are monotonically increasing. For example, if you accidentally paste an incomplete hex that begins at address 0x0700 instead of 0x0000 you will see something like:
+
+```
+First address must be 0:
+:10007000726C642C20707265737320277227207451
+   ^^^^
+Rebooting into bootloader
+
+AVR Hexloader 1.0.ae2dc8-dirty
+Paste your hex file, 'h' for help
+>:
+```
+
+Same if the checksum fails:
+
+```
+Checksum error in line:
+:100000000C9446000C9458000C9458000C94580020
+Rebooting into bootloader
+```
+
+After receiving 128 bytes, the current page is erased and flashed while more data for the next page queues up in pipeline.
 
 This all works without any kind of flow control as long as data comes in at a slower pace than it is flashed by the AVR. Flashing or erasing a 128 bytes page on an atmega328p takes a maximum 4.5ms according to the datasheet (chapter 26.2.4), so that's 9ms for a full erase + program cycle. On the other hand, 128 bytes take 352 characters. As long as 352 bytes (3520 bits with 8,N,1 frames) take more than 9ms, they won't overrun the fifo. That gives a theoretical maximum baud rate of 390 Kbps.
 
