@@ -17,9 +17,9 @@
 #endif
 #define DEBUG
 
-#define UBRR                        16      //< 34 = 56.6K, 16 = 115.2K bps, 8 = 230.4K bps
-#define RX_BUFFER_LEN               1024    //< receive buffer length
-#define TX_BUFFER_LEN               32      //< transmit buffer length
+#define BAUD_RATE                   115200  //< Serial baudrate in bps
+#define RX_BUFFER_LEN               256     //< receive buffer length
+#define TX_BUFFER_LEN               256     //< transmit buffer length
 #define LF                          10      //< \n ascii
 #define CR                          13      //< \r ascii
 #define ESC                         27      //< ESC ascii
@@ -44,8 +44,10 @@
 #define BOOTAPP_SIG_1               0xb0    // boot into app signature
 #define BOOTAPP_SIG_2               0xaa
 
-
+char const CRLF[] PROGMEM = "\r\n";
 // Macros
+
+#define SERIAL_2X_UBRRVAL(baud) ((((F_CPU / 8) + (baud / 2)) / (baud)) - 1)
 
 #define LED_ON() PORTB |= _BV(PORTB5)       /**< Turn on the LED */
 #define LED_OFF() PORTB &= ~_BV(PORTB5)     /**< Turn off the LED */
@@ -58,16 +60,14 @@
     do { \
         cli(); \
         if (condition) { \
-            sleep_enable(); \
             sei(); \
             sleep_cpu(); \
-            sleep_disable(); \
         } else { \
             sei(); \
             break; \
         } \
-        sei(); \
     } while (1);
+
 
 // Variables
 
@@ -79,18 +79,18 @@
 register uint8_t r2 asm("r2");
 register uint8_t r3 asm("r3");
 
-volatile uint8_t rx_buffer[RX_BUFFER_LEN];  ///< UART receive buffer
 volatile uint8_t tx_buffer[TX_BUFFER_LEN];  ///< UART transmit buffer
-volatile uint16_t rx_head, rx_tail, tx_head, tx_tail;
+volatile uint8_t rx_buffer[RX_BUFFER_LEN];  ///< UART receive buffer
+volatile uint8_t rx_head, rx_tail, tx_head, tx_tail;
 volatile uint8_t uart_error;                ///< one of #ERROR_RX_DATA_OVERRUN, #ERROR_RX_FRAME_ERROR or #ERROR_RX_BUFFER_OVERFLOW   
 volatile uint32_t clock;                    ///< number of milliseconds since boot */
 volatile uint32_t t0;
-volatile uint16_t breathing_led;
-
+volatile int16_t breathing_led;
 
 char line[MAX_LINE_LEN];        ///< Buffer containing hex lines or commands
 uint8_t page[PAGE_SIZE];        ///< Buffer containing the current page (to be flashed or verified)
-uint16_t current_page_address;  ///< This is the current page address. Page address = byte address / PAGE_SIZE
+uint16_t current_page;          ///< This is the current page number. Page number = page address / PAGE_SIZE
+
 
 ///////////////////////////////////////////////////////////////////////
 // ISR routines 
@@ -102,9 +102,10 @@ uint16_t current_page_address;  ///< This is the current page address. Page addr
  */
 ISR(USART_RX_vect)
 {
+    // UCSR0A must be read before UDR0
     uint8_t status = UCSR0A;
-    uint8_t data = UDR0;
-    uint16_t new_head = (rx_head + 1) % RX_BUFFER_LEN;
+    uint8_t data = UDR0;    // this clears the interrupt flag
+    uint8_t new_head = (rx_head + 1) % RX_BUFFER_LEN;
 
     if (status & _BV(DOR0))
         uart_error |= ERROR_RX_DATA_OVERRUN;
@@ -164,11 +165,43 @@ ISR(TIMER0_COMPA_vect)
 /**
  * Time 0 comparator B ISR.
  * Called when timer 0 counts up to OCR0B. This is used for the breathing
- * LED (software PWM).
+ * LED (software PWM). It it declared naked because it doesn't change
+ * registers or SREG.
  */
-ISR(TIMER0_COMPB_vect)
+ISR(TIMER0_COMPB_vect, ISR_NAKED)
 {
     LED_OFF();
+    reti();
+}
+
+/**
+ * SPM ready ISR.
+ * Called when the SPM instruction is done. It just disables SPMIE
+ * so that it doesn't get called infinitely.
+ */
+ISR(SPM_READY_vect)
+{
+    boot_spm_interrupt_disable();
+}
+
+
+///////////////////////////////////////////////////////////////////////
+// Powersave utils
+///////////////////////////////////////////////////////////////////////
+
+/**
+ * Sets the AVR to maximum power saving.
+ * It does so by disabling unneeded modules. Also prepares the SMCR
+ * to enter idle mode when the sleep instruction is executed.
+ */
+void power_init()
+{
+    // Idle mode is the only mode that will keep the UART running
+    SMCR = _BV(SE);     // enable sleep instruction, idle mode
+
+    // Disable TWI, Timer 2, Timer 1, SPI and ADC.
+    // Note: SPI is need if debugging.
+    PRR = _BV(PRTWI) | _BV(PRTIM2) | _BV(PRTIM1) | _BV(PRSPI) | _BV(PRADC);
 }
 
 
@@ -264,7 +297,7 @@ uint16_t hex_word_to_dec(char *s)
 void timer_init()
 {
     TCCR0A = _BV(WGM01);                // CTC mode (count up to OCR0A)
-    OCR0A = 240;                        // 249 * 64 / 16M = 0.996 ms
+    OCR0A = 249;                        // 249 * 64 / 16M = 0.996 ms
     TCCR0B = _BV(CS01) | _BV(CS00);     // clk/64 prescaler
     TIMSK0 = _BV(OCIE0A) | _BV(OCIE0B); // Interrupt on both A, B match
 }
@@ -289,23 +322,22 @@ uint32_t millis()
 
 /**
  * Start the UART.
- * Set the UART to 2x speed mode, 115.2K bauds, 8N1 and enable rx 
+ * Set the UART to 2x speed mode, BAUD_RATE bauds, 8N1 and enable rx 
  * interrupts.
  */
 void uart_init()
 {
     // Set baud rate
-    UBRR0H = (uint8_t) (UBRR >> 8);
-    UBRR0L = (uint8_t) (UBRR);
+    UBRR0 = SERIAL_2X_UBRRVAL(BAUD_RATE);
 
     // double speed
     UCSR0A = _BV(U2X0);
 
-    // Enable receiver and transmitter, generate interrupts on RX, DRE
-    UCSR0B = _BV(RXCIE0) | _BV(RXEN0) | _BV(TXEN0);
-
     // 8,N,1
     UCSR0C = (3 << UCSZ00);
+
+    // Enable receiver and transmitter, generate interrupts on RX, DRE
+    UCSR0B = _BV(RXCIE0) | _BV(RXEN0) | _BV(TXEN0);
 }
 
 /**
@@ -321,9 +353,7 @@ void uart_send_byte(uint8_t c)
     IDLE_WHILE(tx_tail == new_head);
 
     tx_buffer[tx_head] = c;
-    cli();      // atomically update the head
     tx_head = new_head;
-    sei();
 
     // Enable UDRE int, this will trigger the UDRE ISR
     UCSR0B |= _BV(UDRIE0);
@@ -388,17 +418,14 @@ void uart_send_int_hex(uint16_t x)
 
 /**
  * Receive a byte.
- * @return an int16_t with the byte, or -1 if no data available
+ * @return an int16_t with the byte, will block until data is available.
  */
-int16_t uart_recv_byte() 
+uint8_t uart_recv_byte() 
 {
-    if (rx_tail == rx_head)
-        return -1;    // no data
+    IDLE_WHILE(rx_tail == rx_head);
 
-    cli();
-    int16_t c = rx_buffer[rx_tail];
+    int8_t c = rx_buffer[rx_tail];
     rx_tail = (rx_tail + 1) % RX_BUFFER_LEN;
-    sei();
 
     return c;
 }
@@ -424,12 +451,13 @@ int8_t uart_available()
 void reboot() {
     wdt_enable(WDTO_15MS);
     // wait for pending uart i/o to flush
-    //for (;;);
-    IDLE_WHILE(1);
+    for (;;) {
+        sleep_cpu();
+    }
 }
 
 /** Reboot to bootloader.
- * Sets a 15 ms watchdog timer and spinlocks until the watchdog reboots
+ * Sets a 15 ms watchdog timer and idles until the watchdog reboots
  * the AVR. Registers r2 = r3 = 0 are used to signal bootloader run.
  */
 void reboot_to_bootloader()
@@ -440,16 +468,15 @@ void reboot_to_bootloader()
 }
 
 /** Reboot to user app.
- * Sets a 15 ms watchdog timer and spinlocks until the watchdog reboots
- * the AVR. Registers r2 = r3 = 0 are used to signal bootloader run.
+ * Sets a 15 ms watchdog timer and idles until the watchdog reboots
+ * the AVR. Registers r2/r3 = 0xb0aa are used to signal app run.
  */
 void reboot_to_app()
 {
     uart_send_string(PSTR("Have a nice day!\r\n\r\n"));
     r2 = BOOTAPP_SIG_1;
     r3 = BOOTAPP_SIG_2;
-    wdt_enable(WDTO_15MS);  // will cli() for us
-    for (;;);
+    reboot();
 }
 
 
@@ -464,48 +491,53 @@ void reboot_to_app()
 uint8_t get_line()
 {
     static uint8_t len = 0;
+    uint8_t c;
 
     if (uart_error & ERROR_RX_BUFFER_OVERFLOW) {
         uart_send_string(PSTR("\r\nUART error: buffer overflow (try a lower baud rate)\r\n"));
         reboot_to_bootloader();
     }
-    //if (uart_error & ERROR_RX_FRAME_ERROR)
-    //    uart_send_string(PSTR("\r\nUART error: frame error\r\n"));
+    // Ignore frame errors
+#if 0
+    if (uart_error & ERROR_RX_FRAME_ERROR) {
+        uart_send_string(PSTR("\r\nUART error: frame error\r\n"));
+        reboot_to_bootloader();
+    }
+#endif
     if (uart_error & ERROR_RX_DATA_OVERRUN) {
         uart_send_string(PSTR("\r\nUART error: data overrun\r\n"));
         reboot_to_bootloader();
     }
 
-    if (uart_available()) {
-        char c = uart_recv_byte();
-        if (c == ESC) {
-            uart_send_string(PSTR("\r\n"));
-            line[0] = '\0';
+    c = uart_recv_byte();
+    if (c == ESC) {
+        uart_send_string(CRLF);
+        line[0] = '\0';
+        len = 0;
+        return 1;
+    } 
+    else if (c == CR || c == LF) {
+        line[len] = '\0';
+        if (len > 0) {
             len = 0;
+            if (line[0] != ':') {   // no echo if receiving hex
+                uart_send_string(CRLF);
+            }
             return 1;
         }
-        if (c == CR || c == LF) {
-            line[len] = '\0';
-            if (len > 0) {
-                len = 0;
-                if (line[0] != ':') {   // no echo if receiving hex
-                    uart_send_string(PSTR("\r\n"));
-                }
-                return 1;
+    }
+    else {
+        if (len < MAX_LINE_LEN - 1) {
+            line[len++] = c;
+            if (line[0] != ':') {   // no echo if receiving hex
+                uart_send_byte(c);
             }
         }
-        else {
-            if (len < MAX_LINE_LEN - 1) {
-                line[len++] = c;
-                if (line[0] != ':') {   // no echo if receiving hex
-                    uart_send_byte(c);
-                }
-            }
-            else if (len == MAX_LINE_LEN - 1) {
-                line[len++] = '\0';
-            }
+        else if (len == MAX_LINE_LEN - 1) {
+            line[len++] = '\0';
         }
     }
+
     return 0;
 }
 
@@ -533,7 +565,7 @@ void point_out_error(uint8_t col, uint8_t carets)
         uart_send_byte(' ');
     for (i = 0; i < carets; i++)
         uart_send_byte('^');
-    uart_send_string(PSTR("\r\n"));
+    uart_send_string(CRLF);
 }
 
 /**
@@ -545,7 +577,7 @@ void dump_line()
     for (i = 0; line[i]; i++) {
         uart_send_byte(line[i]);
     }
-    uart_send_string(PSTR("\r\n"));
+    uart_send_string(CRLF);
 }
 
 /**
@@ -560,42 +592,39 @@ void new_page()
 
 /**
  * Flash the current page.
- * Writes the current page at #current_page_address from the data in
+ * Writes the current page at #current_page from the data in
  * the #page buffer.
  */
 void write_current_page()
 {
     uint16_t i;
+    uint16_t addr;
 
-#if 0
-    uart_send_byte(CR);
-    uart_send_byte('p');
-    uart_send_byte('=');
-    uart_send_int(current_page_address);
-    uart_send_byte(CR);
-    uart_send_byte(LF);
-#endif
-
-    boot_spm_busy_wait();
+    // All operations involving SPM are timed sequences and must be protected
+    // from interrupts with cli()/sei(), ie. boot_page_*.
+    addr = current_page * PAGE_SIZE;
     cli();
-    boot_page_erase(current_page_address * PAGE_SIZE);
+    boot_page_erase(addr);          // erase page
+    boot_spm_interrupt_enable();    // let SPM-ready interrupt wake us up
     sei();
-    boot_spm_busy_wait();
+    IDLE_WHILE(boot_spm_busy());    // sleep until SPM is done
 
     for (i = 0; i < PAGE_SIZE; i += 2) {
         // make little endian words by swapping every two bytes
         uint16_t word = page[i] | (page[i+1] << 8);
+        addr = current_page * PAGE_SIZE + i;
         cli();
-        boot_page_fill(current_page_address * PAGE_SIZE + i, word);
+        boot_page_fill(addr, word);
+        // no need to IDLE_WAIT(boot_spm_busy()) here
         sei();
     }
 
+    addr = current_page * PAGE_SIZE;
     cli();
-    boot_page_write(current_page_address * PAGE_SIZE);
+    boot_page_write(addr);          // write page
+    boot_spm_interrupt_enable();    // let SPM-ready int wake us up
     sei();
-    boot_spm_busy_wait();
-
-    LED_OFF();
+    IDLE_WHILE(boot_spm_busy());    // sleep until SPM done
 }
 
 /**
@@ -625,6 +654,22 @@ uint8_t is_address_valid(uint16_t last_address, uint16_t address)
 }
 
 /**
+ * Display progress.
+ * @param mode either #MODE_FLASH or #MODE_VERIFY
+ * @param count bytes flashed/verified
+ */
+void progress(uint8_t mode, uint16_t count)
+{
+    if (mode == MODE_FLASH) {
+        uart_send_string(PSTR("\rFlashing: "));
+    }
+    else {
+        uart_send_string(PSTR("\rVerifying: "));
+    }
+    uart_send_int(count);
+}
+
+/**
  * Decode an hex line and flash if we have PAGE_SIZE bytes already.
  * @return flash status (#FLASH_GOING_ON, #FLASH_OK, #FLASH_ERROR)
  */
@@ -644,19 +689,25 @@ uint8_t flash_hex_line(uint8_t mode)
     if (record_type == 0 && ! is_address_valid(last_address, address))
         return FLASH_ERROR;
 
+    if (count > 16) {
+        uart_send_string(PSTR("\r\nRegisters >16 bytes not supported\r\n"));
+        dump_line();
+        point_out_error(1, 2);
+        return FLASH_ERROR;
+    }
+
     checksum = count + (uint8_t)address + (address >> 8) + record_type;
 
     for (i = 0; i < count; i++) {
         uint8_t b = hex_byte_to_dec(line + 9 + i * 2);
 
         if (mode == MODE_FLASH) {
-            if ((address + i) / PAGE_SIZE != current_page_address) {
+            if ((address + i) / PAGE_SIZE != current_page) {
                 // current page is ready to write
                 write_current_page();
                 new_page();
-                current_page_address = (address + i) / PAGE_SIZE;
+                current_page = (address + i) / PAGE_SIZE;
             }
-
             page[(address + i) % PAGE_SIZE] = b;
         }
         else {
@@ -675,28 +726,9 @@ uint8_t flash_hex_line(uint8_t mode)
     if (checksum != 0) {
         uart_send_string(PSTR("\r\nChecksum error in line:\r\n"));
         dump_line();
+        point_out_error(9 + count * 2, 2);
         return FLASH_ERROR;
     }
-
-#if 0
-    for (i = 0; line[i]; i++) {
-        uart_send_byte(line[i]);
-    }
-
-    uart_send_byte('/');
-    uart_send_int(checksum);
-    uart_send_byte('/');
-#endif
-
-#if 0
-    uart_send_byte(LF);
-    uart_send_byte('l');
-    uart_send_byte('=');
-    uart_send_int((rx_head + RX_BUFFER_LEN - rx_tail) % RX_BUFFER_LEN);
-    uart_send_byte(CR);
-    uart_send_byte(LF);
-#endif
-
 
     if (record_type == 1) {        // End of file
         if (mode == MODE_FLASH) {
@@ -704,24 +736,22 @@ uint8_t flash_hex_line(uint8_t mode)
             write_current_page();
 
             // re-enable RWW area
-            boot_rww_enable_safe();
+            cli();
+            boot_rww_enable();
+            boot_spm_interrupt_enable();
+            sei();
+            IDLE_WHILE(boot_spm_busy());
 
             // We're not supposed to flash again from the same incarnation of
             // the bootloader, but clean up anyway.
             new_page();
-            current_page_address = 0;
+            current_page = 0;
             last_address = 0xffff;
         }
         return FLASH_OK;
     }
     else {
-        if (mode == MODE_FLASH) {
-            uart_send_string(PSTR("\rFlashed: "));
-        }
-        else {
-            uart_send_string(PSTR("\rVerified: "));
-        }
-        uart_send_int(address + count);
+        progress(mode, address + count);
         last_address = address + count - 1;
         return FLASH_GOING_ON;
     }
@@ -806,14 +836,13 @@ void bootloader()
 
     // init led pin direction
     DDRB |= _BV(DDB5);
+    LED_OFF();
 
-    // init uart and timer
+    // init sleep mode, uart and timer
+    power_init();
     uart_init();
     timer_init();
     sei();
-
-    // Idle mode is the only mode that will keep the UART running
-    set_sleep_mode(SLEEP_MODE_IDLE);
 
     // prepare a new empty page
     new_page();
@@ -822,7 +851,7 @@ void bootloader()
     for (mode = MODE_FLASH; mode <= MODE_VERIFY; mode++) {
         if (mode == MODE_FLASH) {
             uart_send_string(PSTR(
-                "AVR Hexloader " VERSION "." GIT_VERSION "\r\n"
+                "AVR Hexloader " VERSION " git " GIT_VERSION "\r\n"
                 "Paste your hex file, 'h' for help\r\n"));
         }
         else {
