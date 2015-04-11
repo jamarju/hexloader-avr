@@ -94,7 +94,7 @@ The asm instruccion `mov r2, 0` ensures that the 'boot to app' signature is not 
 
 Hexloader works by taking an Intel Hex file sent over the serial port. Hex files are the compilation output of Arduino or avr-gcc + objcopy. Pasting it directly on a terminal emulator flashes the chip. You can use any terminal like putty, screen, cu, hyperterminal, etc.
 
-Internally, a FIFO buffer queues up data as it comes in. Every line in the hex file is checksummed, plus there are other consistency checks like making sure addresses start at 0 and are monotonically increasing. For example, if you accidentally paste an incomplete hex that begins at address 0x0700 instead of 0x0000 you will see something like:
+Internally, a FIFO buffer queues up data as it comes in. Every line in the hex file is checksummed, plus there are other consistency checks like making sure addresses start at 0 and are monotonically increasing. For example, if you accidentally paste an incomplete hex that begins at address 0x0070 instead of 0x0000 you will see something like:
 
 ```
 First address must be 0:
@@ -123,7 +123,15 @@ In practical terms, I've tested at 230.4 Kbps but that results in rx errors. Thi
 
 ## How to compile and flash
 
-Edit the user-definable settings at the beginning of Makefile.mk. You need avr-gcc. The easiest to get it is by installing the Arduino IDE, then point `AVR_PATH` to the avr toolchain path (eg. /Applications/Arduino.app/Contents/Resources/Java/hardware/tools/avr in OS X).
+You need avr-gcc. The easiest way to get it is by installing the Arduino IDE. On Ubuntu-based OSes, you can also do:
+
+```
+sudo apt-get install avrdude gcc-avr avr-libc
+```
+
+In `Makefile.mk`, set the `OS` variable to `linux` or `osx` depending on your host platform. Check `AVR_PATH` and `AVR_TOOLS_PATH`. In `hexloader/Makefile` set the variables `AVRDUDE_PROGRAMMER` and `AVRDUDE_PORT`.
+
+Then:
 
 ```
 make isp
