@@ -16,9 +16,6 @@ AVR_TOOLS_PATH = $(AVR_PATH)/bin
 AVRDUDE_CONF = $(AVR_PATH)/etc/avrdude.conf
 endif
 
-AVRDUDE_PROGRAMMER = avrisp2
-AVRDUDE_PORT = /dev/tty.usbmodem00028961
-UPLOAD_RATE = 115200
 MCU = atmega328p
 F_CPU = 16000000L
 
