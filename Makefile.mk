@@ -9,8 +9,9 @@ AVRDUDE_CONF = /etc/avrdude.conf
 endif
 
 ifeq ($(OS), osx)
-AVR_PATH = /Applications/Arduino-1.6.0.app/Contents/Resources/Java/hardware/tools/avr
+AVR_PATH = /Applications/Arduino.app/Contents/Java/hardware/tools/avr
 #AVR_PATH = /Applications/Arduino.app/Contents/Resources/Java/hardware/tools/avr
+#AVR_PATH = /Applications/Arduino-1.6.0.app/Contents/Resources/Java/hardware/tools/avr
 #AVR_PATH = /usr/local/CrossPack-AVR
 AVR_TOOLS_PATH = $(AVR_PATH)/bin
 AVRDUDE_CONF = $(AVR_PATH)/etc/avrdude.conf
@@ -47,10 +48,10 @@ MV			= mv -f
 COMMON_FLAGS 	= -DF_CPU=$(F_CPU) -I. -I$(ROOT)/include -Os -Wall \
 			-ffunction-sections -fdata-sections -mmcu=$(MCU) \
 			-DARDUINO=$(ARDUINO)
-CFLAGS 			= -gstabs $(COMMON_FLAGS) -DGIT_VERSION=\"$(GIT_VERSION)\" # -Wstrict-prototypes # -Wa,-adhlns=$(<:.c=.lst),-gstabs
+CFLAGS 			= -mrelax -gstabs $(COMMON_FLAGS) -DGIT_VERSION=\"$(GIT_VERSION)\" -ffreestanding # -Wstrict-prototypes # -Wa,-adhlns=$(<:.c=.lst),-gstabs
 CXXFLAGS		= -gstabs $(COMMON_FLAGS) -fno-exceptions # -Wa,-adhlns=$(<:.cpp=.lst),-gstabs
 ASFLAGS			= -Wa,-adhlns=$(<:.S=.lst),-gstabs -mmcu=$(MCU) -x assembler-with-cpp
-LD_FLAGS		= -gstabs -Os -Wl,--gc-sections -mmcu=$(MCU) -Wl,--section-start=.text=$(TEXT_SECTION)
+LD_FLAGS		= -mrelax -gstabs -Os -Wl,--gc-sections -mmcu=$(MCU) -Wl,--section-start=.text=$(TEXT_SECTION)
 SYSTEM_LIBS		= # -lm
 AVRDUDE_FLAGS 	= -p $(MCU) -P $(AVRDUDE_PORT) -c $(AVRDUDE_PROGRAMMER) \
 								-b $(UPLOAD_RATE) -C $(AVRDUDE_CONF)

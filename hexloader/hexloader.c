@@ -8,7 +8,6 @@
 #include <avr/wdt.h>
 #include <util/delay.h>
 
-
 // Constants
 
 #define VERSION                     "1.0"
@@ -45,6 +44,7 @@
 #define BOOTAPP_SIG_2               0xaa
 
 char const CRLF[] PROGMEM = "\r\n";
+
 // Macros
 
 #define SERIAL_2X_UBRRVAL(baud) ((((F_CPU / 8) + (baud / 2)) / (baud)) - 1)
@@ -83,13 +83,14 @@ volatile uint8_t tx_buffer[TX_BUFFER_LEN];  ///< UART transmit buffer
 volatile uint8_t rx_buffer[RX_BUFFER_LEN];  ///< UART receive buffer
 volatile uint8_t rx_head, rx_tail, tx_head, tx_tail;
 volatile uint8_t uart_error;                ///< one of #ERROR_RX_DATA_OVERRUN, #ERROR_RX_FRAME_ERROR or #ERROR_RX_BUFFER_OVERFLOW   
-volatile uint32_t clock;                    ///< number of milliseconds since boot */
-volatile uint32_t t0;
+volatile uint16_t clock;                    ///< number of milliseconds since boot */
+volatile uint16_t t0;
 volatile int16_t breathing_led;
 
 char line[MAX_LINE_LEN];        ///< Buffer containing hex lines or commands
 uint8_t page[PAGE_SIZE];        ///< Buffer containing the current page (to be flashed or verified)
 uint16_t current_page;          ///< This is the current page number. Page number = page address / PAGE_SIZE
+uint16_t last_address;          ///< Keep track of the last address flashed
 
 
 ///////////////////////////////////////////////////////////////////////
@@ -150,9 +151,10 @@ ISR(USART_UDRE_vect)
  */
 ISR(TIMER0_COMPA_vect)
 {
-    clock++;
+    uint16_t c = ++clock;
+    
     LED_ON();
-    if (clock % 8 == 0) {
+    if ((c % 8) == 0) {
         // breath in the lower half brightness range of the led (0 .. OCR0A / 2)
         if (++breathing_led > OCR0A) breathing_led = 0;
         if (breathing_led < OCR0A / 2)
@@ -165,7 +167,7 @@ ISR(TIMER0_COMPA_vect)
 /**
  * Time 0 comparator B ISR.
  * Called when timer 0 counts up to OCR0B. This is used for the breathing
- * LED (software PWM). It it declared naked because it doesn't change
+ * LED (software PWM). It is declared naked because it doesn't change
  * registers or SREG.
  */
 ISR(TIMER0_COMPB_vect, ISR_NAKED)
@@ -210,75 +212,23 @@ void power_init()
 ///////////////////////////////////////////////////////////////////////
 
 /**
-  * Convert a nibble to hex.
-  * @param x the nibble
-  * @return an hex char [0-9A-Z]
-  */
-uint8_t nibble_to_hex(uint8_t x)
-{
-    x &= 0xf;
-    if (x >= 0 && x <= 9)
-        return x + '0';
-    else
-        return x + 'A' - 10;
-}
-
-/**
-  * Convert a byte to hex.
-  * @param x the byte
-  * @return two hex chars packed in a word (leftmost char in the MSB)
-  */
-uint16_t byte_to_hex(uint8_t x)
-{
-    return nibble_to_hex(x >> 4) << 8 | nibble_to_hex(x & 0xf);
-}
-
-/**
- * Convert a word to hex.
- * @param x the word (16 bits)
- * @return 4 hex chars packed in a uint32_t (leftmost char in the MSB)
+ * Decode n hex big endian nibbles.
  */
-uint32_t word_to_hex(uint16_t x)
+uint16_t hex_nibbles(char *s, uint8_t n)
 {
-    return (uint32_t)byte_to_hex(x >> 8) << 16 | byte_to_hex(x & 0xff);
-}
-
-/**
- * Convert an ascii hex nibble to decimal.
- * This is used to decode the hex file.
- * @param x the ascii nibble [0-9a-fA-F]
- * @return a value between 0 and 15
- */
-uint8_t hex_nibble_to_dec(char x)
-{
-    if (x >= '0' && x <= '9')
-        return x - '0';
-    else if (x >= 'A' && x <= 'F')
-        return x - 'A' + 10;
-    else if (x >= 'a' && x <= 'f')
-        return x - 'a' + 10;
-    else
-        return 0;
-}
-
-/**
- * Convert an ascii hex byte to decimal.
- * @param s a 2-byte array containing the ascii hex value
- * @return a value between 0 and 255
- */
-uint8_t hex_byte_to_dec(char *s)
-{
-    return 16 * hex_nibble_to_dec(s[0]) + hex_nibble_to_dec(s[1]);
-}
-
-/**
- * Convert an ascii hex word to decimal
- * @param a 4-byte array containing the ascii hex value
- * @return a value between 0 and 65535
- */
-uint16_t hex_word_to_dec(char *s)
-{
-    return 256 * hex_byte_to_dec(s) + hex_byte_to_dec(s + 2);
+    uint16_t r = 0;
+    while (n) {
+        r <<= 4;
+        if (*s >= '0' && *s <= '9')
+            r += *s - '0';
+        else if (*s >= 'A' && *s <= 'F')
+            r += *s - 'A' + 10;
+        else if (*s >= 'a' && *s <= 'a')
+            r += *s - 'a' + 10;
+        s++;
+        n--;
+    }
+    return r;
 }
 
 
@@ -306,9 +256,9 @@ void timer_init()
  * Current time in ms.
  * @return the number of milliseconds since reset
  */
-uint32_t millis()
+uint16_t millis()
 {
-    uint32_t m;
+    uint16_t m;
     cli();      // read atomically
     m = clock;
     sei();
@@ -393,27 +343,20 @@ void uart_send_int(uint16_t x)
 }
 
 /**
- * Print out a byte in hexadecimal.
- * @param x the byte
+ * Print out n lower nibbles of x in big endian hexadecimal.
+ * @param x x
+ * @param n number of nibbles
  */
-void uart_send_byte_hex(uint8_t x)
+void uart_send_hex(uint16_t x, uint8_t n)
 {
-    uint16_t h = byte_to_hex(x);
-    uart_send_byte(h >> 8);
-    uart_send_byte(h & 0xff);
-}
-
-/**
- * Print out a word (uint16_t) in hexadecimal.
- * @param x the word
- */
-void uart_send_int_hex(uint16_t x)
-{
-    uint32_t h = word_to_hex(x);
-    uart_send_byte(h >> 24);
-    uart_send_byte((h >> 16) & 0xff);
-    uart_send_byte((h >> 8) & 0xff);
-    uart_send_byte(h & 0xff);
+    if (n != 0) {
+        uart_send_hex(x >> 4, n - 1);
+        x &= 0xf;
+        if (x >= 0 && x <= 9)
+            uart_send_byte(x + '0');
+        else
+            uart_send_byte(x + 'A' - 10);
+    }
 }
 
 /**
@@ -445,12 +388,14 @@ int8_t uart_available()
 ///////////////////////////////////////////////////////////////////////
 
 /** Force a reboot.
- * Reboots the AVR by setting a 15 ms watchdog timer. Interrupts are
+ * Reboots the AVR by setting the watchdog timer. Interrupts are
  * allowed, so that pending rx or tx data gets flushed.
  */
-void reboot() {
-    wdt_enable(WDTO_15MS);
-    // wait for pending uart i/o to flush
+void __attribute__((noreturn)) reboot() {
+    // There is a 70-90 ms bluetooth 'silence' after the 1 KB or so is
+    // received. In order to flush a possibly long paste, set the watchdog
+    // timer to reboot after 120 ms of inactivity.
+    wdt_enable(WDTO_120MS);
     for (;;) {
         sleep_cpu();
     }
@@ -460,7 +405,7 @@ void reboot() {
  * Sets a 15 ms watchdog timer and idles until the watchdog reboots
  * the AVR. Registers r2 = r3 = 0 are used to signal bootloader run.
  */
-void reboot_to_bootloader()
+void __attribute__((noreturn)) reboot_to_bootloader()
 {
     uart_send_string(PSTR("Rebooting into bootloader\r\n\r\n"));
     r2 = r3 = 0;
@@ -471,7 +416,7 @@ void reboot_to_bootloader()
  * Sets a 15 ms watchdog timer and idles until the watchdog reboots
  * the AVR. Registers r2/r3 = 0xb0aa are used to signal app run.
  */
-void reboot_to_app()
+void __attribute__((noreturn)) reboot_to_app()
 {
     uart_send_string(PSTR("Have a nice day!\r\n\r\n"));
     r2 = BOOTAPP_SIG_1;
@@ -597,12 +542,11 @@ void new_page()
  */
 void write_current_page()
 {
-    uint16_t i;
-    uint16_t addr;
+    uint8_t i;
+    const uint16_t addr = current_page * PAGE_SIZE;
 
     // All operations involving SPM are timed sequences and must be protected
     // from interrupts with cli()/sei(), ie. boot_page_*.
-    addr = current_page * PAGE_SIZE;
     cli();
     boot_page_erase(addr);          // erase page
     boot_spm_interrupt_enable();    // let SPM-ready interrupt wake us up
@@ -612,14 +556,13 @@ void write_current_page()
     for (i = 0; i < PAGE_SIZE; i += 2) {
         // make little endian words by swapping every two bytes
         uint16_t word = page[i] | (page[i+1] << 8);
-        addr = current_page * PAGE_SIZE + i;
         cli();
-        boot_page_fill(addr, word);
+        boot_page_fill(addr + i, word);
         // no need to IDLE_WAIT(boot_spm_busy()) here
         sei();
     }
 
-    addr = current_page * PAGE_SIZE;
+
     cli();
     boot_page_write(addr);          // write page
     boot_spm_interrupt_enable();    // let SPM-ready int wake us up
@@ -675,16 +618,15 @@ void progress(uint8_t mode, uint16_t count)
  */
 uint8_t flash_hex_line(uint8_t mode)
 {
-    static uint16_t last_address = 0xffff;   // keep track of the last address flashed
     uint16_t address;
     uint8_t checksum = 0;
     uint8_t count;
     uint8_t record_type;
     int i;
 
-    count = hex_byte_to_dec(line + 1);
-    address = hex_word_to_dec(line + 3);
-    record_type = hex_byte_to_dec(line + 7);
+    count = hex_nibbles(line + 1, 2);
+    address = hex_nibbles(line + 3, 4);
+    record_type = hex_nibbles(line + 7, 2);
 
     if (record_type == 0 && ! is_address_valid(last_address, address))
         return FLASH_ERROR;
@@ -699,7 +641,7 @@ uint8_t flash_hex_line(uint8_t mode)
     checksum = count + (uint8_t)address + (address >> 8) + record_type;
 
     for (i = 0; i < count; i++) {
-        uint8_t b = hex_byte_to_dec(line + 9 + i * 2);
+        uint8_t b = hex_nibbles(line + 9 + i * 2, 2);
 
         if (mode == MODE_FLASH) {
             if ((address + i) / PAGE_SIZE != current_page) {
@@ -721,7 +663,7 @@ uint8_t flash_hex_line(uint8_t mode)
         checksum += b;
     }
 
-    checksum += hex_byte_to_dec(line + 9 + count * 2);
+    checksum += hex_nibbles(line + 9 + count * 2, 2);
 
     if (checksum != 0) {
         uart_send_string(PSTR("\r\nChecksum error in line:\r\n"));
@@ -741,12 +683,6 @@ uint8_t flash_hex_line(uint8_t mode)
             boot_spm_interrupt_enable();
             sei();
             IDLE_WHILE(boot_spm_busy());
-
-            // We're not supposed to flash again from the same incarnation of
-            // the bootloader, but clean up anyway.
-            new_page();
-            current_page = 0;
-            last_address = 0xffff;
         }
         return FLASH_OK;
     }
@@ -768,15 +704,15 @@ void dump_flash()
         uint8_t b;
         if (address % 16 == 0) {
             uart_send_string(PSTR("\r\n:10"));
-            uart_send_int_hex(address);
-            uart_send_byte_hex(0);
+            uart_send_hex(address, 4);
+            uart_send_hex(0, 2);
             checksum = - 0x10 - (address >> 8) - (address & 0xff);
         }
         b = pgm_read_byte(address);
-        uart_send_byte_hex(b);
+        uart_send_hex(b, 2);
         checksum -= b;
         if (address % 16 == 15) {
-            uart_send_byte_hex(checksum);
+            uart_send_hex(checksum, 2);
         }
     }
     uart_send_string(PSTR("\r\n:00000001FF\r\n"));
@@ -825,7 +761,7 @@ void run_command()
 /**
  * Bootloader sequence.
  */
-void bootloader()
+void __attribute__((noreturn)) bootloader()
 {
     uint8_t flash_status;
     uint8_t mode;
@@ -836,7 +772,6 @@ void bootloader()
 
     // init led pin direction
     DDRB |= _BV(DDB5);
-    LED_OFF();
 
     // init sleep mode, uart and timer
     power_init();
@@ -859,6 +794,9 @@ void bootloader()
         }
         prompt();
 
+        new_page();
+        current_page = 0;
+        last_address = 0xffff;
         flash_status = FLASH_WAITING;
         do {
             if (get_line()) {
@@ -889,11 +827,11 @@ void bootloader()
  * Entry point.
  * Decides whether to run the bootloader or the user app.
  */
-int main() {
+void __attribute__((noreturn)) main() {
     // Disable the watchdog if set
     uint8_t mcusr = MCUSR;
-    if (MCUSR & _BV(WDRF)) {
-        MCUSR &= ~_BV(WDRF);
+    if (mcusr & _BV(WDRF)) {
+        MCUSR = mcusr & ~_BV(WDRF);
         wdt_disable();
     }
 
@@ -904,12 +842,12 @@ int main() {
     if ((!(mcusr & (_BV(EXTRF) | _BV(WDRF))) || BOOT_APP())
             && pgm_read_word(0) != 0xffff) {
         r2 = r3 = 0;
-        asm("jmp 0");
+        asm("jmp 0");               // go to app
+        __builtin_unreachable();    // suppress 'noreturn does return' warning
     }
     else {
         r2 = BOOTAPP_SIG_1;
         r3 = BOOTAPP_SIG_2;
         bootloader();
     }
-    return 0;
 }
