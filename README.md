@@ -1,3 +1,5 @@
+ ![logo](logo/hexloader.png)
+
 # Hexloader
 
 This is a bootloader for the Atmega328p that can flash the program memory from an .hex file pasted on a standard serial terminal like putty. It supports verification and validation of the hex data. It is also FAST over high latency links like the cheap HC-06 bluetooth UART modules.
@@ -59,29 +61,20 @@ The motivation behind this is to overcome a few problems I've had with the stand
 
 First, stk500 based bootloaders are *much* slower over bluetooth than over plain USB. The reason is that avrdude expects an ack after every command before moving on to the next. I measured the latency of the bluetooth module to be around 30ms roundtrip. If you run avrdude in super-verbose mode with -v -v -v -v, you will see that flashing or reading every page takes two commands (first the address, then the data), so 60ms are wasted every 128 bytes. That's in addition to the transmission itself and the actual flashing time. Overall, avrdude takes 16 seconds to flash 20KB and then another 14 seconds to read it back for verification, so total 30 seconds. It might not seem much for an one-off run, but if you are developing and uploading repeatedly, it becomes painfully slow.
 
-Another problem I found is that the HC-06 doesn't have a DTR line, so the standard behavior of Arduino where DTR resets the MCU into the bootloader doesn't work. You need to do the reset manually within the bootloader timeout window, which is not always easy to get right and becomes another source of frustration. Plus, it requires physically reaching out the reset button.
+Another problem I found is that the HC-06 doesn't have a DTR line, so the standard behavior of Arduino where DTR resets the MCU into the bootloader doesn't work. You need to do the reset manually within the bootloader timeout window, which is not always easy to get right and becomes another source of frustration. Plus, it requires physically reaching out to the reset button.
 
 ## Booting into the bootloader
 
-There are two ways to enter the bootloader: reset button and the watchdog timer. 
+Pressing the reset button switches between the bootloader and the app. Thus, to reboot your app you would have to press reset twice. On power up, the bootloader will jump straight to the application. See the technical details in the "How it works" section.
 
-### Reset handling
-
-I used a reset-handling feature similar to that of Ralph Doncaster's picoboot. The basic idea is:
-
-  1. On powerup, the bootloader goes straight into the app (this is done by checking that both EXTRF and WDRF in MCUSR are 0).
-  2. After pressing reset, the bootloader checks a special signature `0xb0aa` in registers r2 and r3. If r2 == 0xb0 and r3 == 0xaa, then it will jump into the app, otherwise it stays in the bootloader. Since it's unlikely (p = 1/65536) that r2 and r3 contain those exact values at any random point, the bootloader will run.
-  3. The bootloader sets r2 and r3 to the bootloader signature `0xb0aa` and never uses those registers. So when we press reset again, we'll be back to the app.
-
-### Watchdog timer
-
-The other option is to reboot into the bootloader from the application, for example when a special key is sent from the terminal. You just need to start the watchdog timer and let it go off:
+The bootloader can also be invoked from your application by calling this function:
 
 ```c
 #include <avr/wdt.h>
 
 void reset() 
 {
+    cli();
     asm volatile ("mov r2, 0");
     wdt_enable(WDTO_15MS);
     for (;;);
@@ -89,6 +82,28 @@ void reset()
 ```
 
 The asm instruccion `mov r2, 0` ensures that the 'boot to app' signature is not found and the bootloader doesn't boot back into the application.
+
+
+## How to compile and flash
+
+You need avr-gcc. The easiest way to get it is by installing the Arduino IDE. On Ubuntu-based OSes, you can also do:
+
+```
+sudo apt-get install avrdude gcc-avr avr-libc
+```
+
+In `Makefile.mk`, set the `OS` variable to `linux` or `osx` depending on your host platform. Check `AVR_PATH` and `AVR_TOOLS_PATH`. In `hexloader/Makefile` set the variables `AVRDUDE_PROGRAMMER` and `AVRDUDE_PORT`.
+
+Then:
+
+```
+make isp
+```
+
+This will compile and try to flash using the programmer defined in `AVRDUDE_PROGRAMMER` (avrisp2 by default).
+
+There is also a precompiled version under hexloader/build.
+
 
 ## How it works
 
@@ -115,36 +130,27 @@ Checksum error in line:
 Rebooting into bootloader
 ```
 
-After receiving 128 bytes, the current page is erased and flashed while more data for the next page queues up in pipeline.
+After receiving 128 bytes, the current page is erased and flashed while more data for the next page queues up.
+
+### Flow control
 
 This all works without any kind of flow control as long as data comes in at a slower pace than it is flashed by the AVR. Flashing or erasing a 128 bytes page on an atmega328p takes a maximum 4.5ms according to the datasheet (chapter 26.2.4), so that's 9ms for a full erase + program cycle. On the other hand, 128 bytes take 352 characters. As long as 352 bytes (3520 bits with 8,N,1 frames) take more than 9ms, they won't overrun the fifo. That gives a theoretical maximum baud rate of 390 Kbps.
 
 In practical terms, I've tested at 230.4 Kbps but that results in rx errors. This might be caused by 230400 not being an exact divisor of the CPU frequency (16 MHz), which results in some clock skew. Perhaps using a clock that is multiple of 230400, like 14.7456 MHz would work without issues.
 
-## How to compile and flash
+### Reset handling
 
-You need avr-gcc. The easiest way to get it is by installing the Arduino IDE. On Ubuntu-based OSes, you can also do:
+The way this is implemented is inspired by Ralph Doncaster's picoboot:
 
-```
-sudo apt-get install avrdude gcc-avr avr-libc
-```
+  1. On powerup, the bootloader goes straight into the app (this is done by checking that both EXTRF and WDRF in MCUSR are 0).
+  2. After pressing reset, the bootloader checks a special signature `0xb0aa` in registers r2 and r3. If r2 == 0xb0 and r3 == 0xaa, then it will jump into the app, otherwise it stays in the bootloader. Since it's unlikely (p = 1/65536) that r2 and r3 contain those exact values at any random point, the bootloader will run.
+  3. The bootloader sets r2 and r3 to the bootloader signature `0xb0aa` and never uses those registers. So when we press reset again, we'll be back to the app.
 
-In `Makefile.mk`, set the `OS` variable to `linux` or `osx` depending on your host platform. Check `AVR_PATH` and `AVR_TOOLS_PATH`. In `hexloader/Makefile` set the variables `AVRDUDE_PROGRAMMER` and `AVRDUDE_PORT`.
+### Limitations and porting to other platforms
 
-Then:
-
-```
-make isp
-```
-
-This will compile and try to flash using the programmer defined in `AVRDUDE_PROGRAMMER` (avrisp2 by default).
-
-There is also a precompiled version under hexloader/build.
-
-## Limitations and porting to other platforms
-
-Since the watchdog is used to reboot into the bootloader, it can't be used to recover the application from lockups. A timeout mechanism should be implemented in the bootloader in case of inactivity, which wouldn't bee too hard. Besides that, the watchdog is disabled by the bootloader at the beginning of the code, so the application doesn't need to disable it itself.
+Since the watchdog is used to reboot into the bootloader, it can't be used to recover the application from lockups. A timeout mechanism should be implemented in the bootloader in case of inactivity, which wouldn't be too hard. Besides that, the watchdog is disabled by the bootloader at the beginning of the code, so the application doesn't need to disable it itself.
 
 Hexloader takes the whole NRWW program space (upper 4KB), leaving 28 KB for the application. Program memory (32 KB) in the atmega328p is divided in two blocks, RWW (read while write) and NRWW (no read while write). RWW can be flashed while the CPU does other things like serving UART interrupts. However, programming the NRWW halts the CPU and without flow control all the pasted data received after a CPU halt would be lost.
 
 Also a hardware UART capable of rx/tx interrupts is required so that reading serial data and flashing can happen concurrently.
+
