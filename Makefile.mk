@@ -1,20 +1,26 @@
 ############################################################################
 # User-definable settings:
 
-OS = osx
+OS = windows
 
 ifeq ($(OS), linux)
 AVR_TOOLS_PATH = /usr/bin
-AVRDUDE_CONF = /etc/avrdude.conf
+AVRDUDE_CONF   = /etc/avrdude.conf
 endif
 
 ifeq ($(OS), osx)
-AVR_PATH = /Applications/Arduino.app/Contents/Java/hardware/tools/avr
-#AVR_PATH = /Applications/Arduino.app/Contents/Resources/Java/hardware/tools/avr
-#AVR_PATH = /Applications/Arduino-1.6.0.app/Contents/Resources/Java/hardware/tools/avr
-#AVR_PATH = /usr/local/CrossPack-AVR
+AVR_PATH       = /Applications/Arduino.app/Contents/Java/hardware/tools/avr
+#AVR_PATH      = /Applications/Arduino.app/Contents/Resources/Java/hardware/tools/avr
+#AVR_PATH      = /Applications/Arduino-1.6.0.app/Contents/Resources/Java/hardware/tools/avr
+#AVR_PATH      = /usr/local/CrossPack-AVR
 AVR_TOOLS_PATH = $(AVR_PATH)/bin
-AVRDUDE_CONF = $(AVR_PATH)/etc/avrdude.conf
+AVRDUDE_CONF   = $(AVR_PATH)/etc/avrdude.conf
+endif
+
+ifeq ($(OS), windows)
+AVR_PATH       = C:/Program Files (x86)/Arduino/hardware/tools/avr
+AVR_TOOLS_PATH = $(AVR_PATH)/bin
+AVRDUDE_CONF   = "$(AVR_PATH)/etc/avrdude.conf"
 endif
 
 MCU = atmega328p
@@ -33,16 +39,17 @@ FORMAT = ihex
 BUILD_DIR = $(ROOT)/build
 
 # Programs
-CC			= $(AVR_TOOLS_PATH)/avr-gcc
-CXX			= $(AVR_TOOLS_PATH)/avr-g++
-OBJCOPY		= $(AVR_TOOLS_PATH)/avr-objcopy
-OBJDUMP		= $(AVR_TOOLS_PATH)/avr-objdump
-AR			= $(AVR_TOOLS_PATH)/avr-ar
-SIZE		= $(AVR_TOOLS_PATH)/avr-size
-NM			= $(AVR_TOOLS_PATH)/avr-nm
-AVRDUDE 	= $(AVR_TOOLS_PATH)/avrdude
+CC			= "$(AVR_TOOLS_PATH)/avr-gcc"
+CXX			= "$(AVR_TOOLS_PATH)/avr-g++"
+OBJCOPY		= "$(AVR_TOOLS_PATH)/avr-objcopy"
+OBJDUMP		= "$(AVR_TOOLS_PATH)/avr-objdump"
+AR			= "$(AVR_TOOLS_PATH)/avr-ar"
+SIZE		= "$(AVR_TOOLS_PATH)/avr-size"
+NM			= "$(AVR_TOOLS_PATH)/avr-nm"
+AVRDUDE 	= "$(AVR_TOOLS_PATH)/avrdude"
 REMOVE		= rm -f
 MV			= mv -f
+
 
 # Flags
 COMMON_FLAGS 	= -DF_CPU=$(F_CPU) -I. -I$(ROOT)/include -Os -Wall \

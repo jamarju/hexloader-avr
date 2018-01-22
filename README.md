@@ -83,16 +83,41 @@ void reset()
 
 The asm instruccion `mov r2, 0` ensures that the 'boot to app' signature is not found and the bootloader doesn't boot back into the application.
 
-
 ## How to compile and flash
 
-You need avr-gcc. The easiest way to get it is by installing the Arduino IDE. On Ubuntu-based OSes, you can also do:
+### Windows pre-requisites
+
+You need:
+
+ * [Arduino](https://www.arduino.cc/en/main/software) (Windows installer)
+ * [Git](https://git-scm.com/download/win)
+ * [GNU Coreutils](http://gnuwin32.sourceforge.net/packages/coreutils.htm) (Setup program, complete package without source code)
+ * [GNU Make](http://gnuwin32.sourceforge.net/packages/make.htm) (Setup program, complete package without source code)
+ * [GNU Sed](http://gnuwin32.sourceforge.net/packages/sed.htm) (Setup program, complete package without source code)
+
+Add `C:\Program Files (x86)\GnuWin32\bin` to the PATH environment variable. The git installer should take care of that itself.
+
+To modify the environment go to Cortana -> environ, or in Windows <= 7 go to Control Panel and use the search box to search for "environment".
+
+### Linux pre-requisites
 
 ```
-sudo apt-get install avrdude gcc-avr avr-libc
+sudo apt-get install avrdude gcc-avr avr-libc make
 ```
 
-In `Makefile.mk`, set the `OS` variable to `linux` or `osx` depending on your host platform. Check `AVR_PATH` and `AVR_TOOLS_PATH`. In `hexloader/Makefile` set the variables `AVRDUDE_PROGRAMMER` and `AVRDUDE_PORT`.
+### MacOS pre-requisites
+
+Install the Xcode command line tools:
+
+```
+xcode-select --install
+```
+
+Install Arduino.
+
+### Compiling and uploading
+
+In `Makefile.mk`, set the `OS` variable to `windows`, `linux` or `osx` depending on your host platform. Check `AVR_PATH` and `AVR_TOOLS_PATH`. In `hexloader/Makefile` set the variables `AVRDUDE_PROGRAMMER` and `AVRDUDE_PORT`.
 
 Then:
 
