@@ -1,14 +1,14 @@
- ![logo](logo/hexloader.png)
-
 # Hexloader
 
-This is a bootloader for the Atmega328p that can flash the program memory from an .hex file pasted on a standard serial terminal like putty. It supports verification and validation of the hex data. It is also FAST over high latency links like the cheap HC-06 bluetooth UART modules.
+![logo](logo/hexloader.png)
+
+This is an interactive bootloader for Atmega 328p and 2560 MCUs optimized for Bluetooth and other high latency links. It takes an .hex file pasted directly on a standard serial terminal like putty, cu, etc.
 
 ## Example
 
 Open up a terminal emulator:
 
-	AVR Hexloader 1.0
+	AVR Hexloader 1.1
 	Paste your hex file, 'h' for help
 	>:
 
@@ -21,7 +21,7 @@ Paste an .hex file:
 Then paste again to verify:
 
 	Verified: 2464 OK! (616ms)
-	Have a nice day!
+	Enjoy!
 
 Your app boots automatically:
 

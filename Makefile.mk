@@ -23,8 +23,6 @@ AVR_TOOLS_PATH = $(AVR_PATH)/bin
 AVRDUDE_CONF   = "$(AVR_PATH)/etc/avrdude.conf"
 endif
 
-MCU = atmega328p
-F_CPU = 16000000L
 
 ############################################################################
 # Variables:
@@ -36,7 +34,10 @@ GIT_VERSION := $(shell git describe --abbrev=6 --dirty --always --tags)
 FORMAT = ihex
 
 # Put build deliverables here
-BUILD_DIR = $(ROOT)/build
+BUILD_DIR   = $(ROOT)/build-$(MCU)
+OUT_DIR     = $(ROOT)/out-$(MCU)
+
+$(shell mkdir -p $(BUILD_DIR) $(OUT_DIR))
 
 # Programs
 CC			= "$(AVR_TOOLS_PATH)/avr-gcc"
@@ -48,6 +49,7 @@ SIZE		= "$(AVR_TOOLS_PATH)/avr-size"
 NM			= "$(AVR_TOOLS_PATH)/avr-nm"
 AVRDUDE 	= "$(AVR_TOOLS_PATH)/avrdude"
 REMOVE		= rm -f
+RMDIR		= rmdir
 MV			= mv -f
 
 
@@ -55,14 +57,17 @@ MV			= mv -f
 COMMON_FLAGS 	= -DF_CPU=$(F_CPU) -I. -I$(ROOT)/include -Os -Wall \
 			-ffunction-sections -fdata-sections -mmcu=$(MCU) \
 			-DARDUINO=$(ARDUINO)
-CFLAGS 			= -mrelax -gstabs $(COMMON_FLAGS) -DGIT_VERSION=\"$(GIT_VERSION)\" -ffreestanding # -Wstrict-prototypes # -Wa,-adhlns=$(<:.c=.lst),-gstabs
+CFLAGS 			= -mrelax -gstabs $(COMMON_FLAGS) -DGIT_VERSION=\"$(GIT_VERSION)\" -ffreestanding -Wstrict-prototypes # -Wa,-adhlns=$(<:.c=.lst),-gstabs
 CXXFLAGS		= -gstabs $(COMMON_FLAGS) -fno-exceptions # -Wa,-adhlns=$(<:.cpp=.lst),-gstabs
-ASFLAGS			= -Wa,-adhlns=$(<:.S=.lst),-gstabs -mmcu=$(MCU) -x assembler-with-cpp
+# Automatic dependencies
+CFLAGS         += -MMD -MP
+CXXFLAGS       += -MMD -MP # Automatic dependencies
+ASFLAGS			= -Wa,-adhlns=$(addprefix $(BUILD_DIR)/, $(<:.S=.lst)),-gstabs -mmcu=$(MCU) -x assembler-with-cpp
 LD_FLAGS		= -mrelax -gstabs -Os -Wl,--gc-sections -mmcu=$(MCU) -Wl,--section-start=.text=$(TEXT_SECTION)
 SYSTEM_LIBS		= # -lm
 AVRDUDE_FLAGS 	= -p $(MCU) -P $(AVRDUDE_PORT) -c $(AVRDUDE_PROGRAMMER) \
 								-b $(UPLOAD_RATE) -C $(AVRDUDE_CONF)
-HEXSIZE_FLAGS	= --target=$(FORMAT) $(BUILD_DIR)/$(TARGET).hex
+HEXSIZE_FLAGS	= --target=$(FORMAT) $(OUT_DIR)/$(TARGET).hex
 ELFSIZE_FLAGS	= $(BUILD_DIR)/$(TARGET).elf
 OBJCOPY_FLAGS = --debugging \
 					--change-section-address .data-0x800000 \
@@ -71,13 +76,13 @@ OBJCOPY_FLAGS = --debugging \
 					--change-section-address .eeprom-0x810000 
 
 # Define all object files.
-OBJ = $(SRC:.c=.o) $(CXXSRC:.cpp=.o) $(ASRC:.S=.o) 
+OBJ = $(addprefix $(BUILD_DIR)/, $(SRC:.c=.o) $(CXXSRC:.cpp=.o) $(ASRC:.S=.o))
 
 # Define all listing files.
-LST = $(ASRC:.S=.lst) $(CXXSRC:.cpp=.lst) $(SRC:.c=.lst)
+LST = $(addprefix $(BUILD_DIR)/, $(ASRC:.S=.lst) $(CXXSRC:.cpp=.lst) $(SRC:.c=.lst))
 
 # Dependencies
-DEPENDS = $(CXXSRC:.cpp=.d) $(SRC:.c=.d)
+DEPENDS = $(addprefix $(BUILD_DIR)/, $(CXXSRC:.cpp=.d) $(SRC:.c=.d))
 
 
 ############################################################################
@@ -86,7 +91,7 @@ DEPENDS = $(CXXSRC:.cpp=.d) $(SRC:.c=.d)
 # Phony targets for various output files
 typical: hex sizebefore sizeafter
 elf: $(BUILD_DIR)/$(TARGET).elf
-hex: $(BUILD_DIR)/$(TARGET).hex
+hex: $(OUT_DIR)/$(TARGET).hex
 eep: $(BUILD_DIR)/$(TARGET).eep
 lss: $(BUILD_DIR)/$(TARGET).lss 
 sym: $(BUILD_DIR)/$(TARGET).sym
@@ -95,8 +100,8 @@ coff: $(BUILD_DIR)/$(TARGET).coff
 extcoff: $(BUILD_DIR)/$(TARGET).extcoff
 
 # Create build dir if it does not exist
-$(BUILD_DIR):
-	test -d $(BUILD_DIR) || mkdir $(BUILD_DIR)
+#$(BUILD_DIR):
+#	test -d $(BUILD_DIR) || mkdir $(BUILD_DIR)
 
 # Link: create ELF output file from objects
 $(BUILD_DIR)/$(TARGET).elf: $(BUILD_DIR) $(OBJ) $(LIBS)
@@ -109,14 +114,14 @@ $(BUILD_DIR)/$(TARGET).a: $(BUILD_DIR) $(OBJ)
 # Program the device
 install: upload
 flash: upload
-upload: $(BUILD_DIR)/$(TARGET).hex
+upload: $(OUT_DIR)/$(TARGET).hex
 	$(AVRDUDE) $(AVRDUDE_FLAGS) \
-	-U flash:w:$(BUILD_DIR)/$(TARGET).hex
+	-U flash:w:$(OUT_DIR)/$(TARGET).hex
 
-isp: $(BUILD_DIR)/$(TARGET).hex
+isp: $(OUT_DIR)/$(TARGET).hex
 	$(AVRDUDE) $(AVRDUDE_FLAGS) \
 	-U lock:w:0x3f:m \
-	-U flash:w:$(BUILD_DIR)/$(TARGET).hex \
+	-U flash:w:$(OUT_DIR)/$(TARGET).hex \
 	-U lfuse:w:$(LFUSE):m -U hfuse:w:$(HFUSE):m -U efuse:w:$(EFUSE):m \
 	-U lock:w:0x0f:m
 
@@ -129,15 +134,17 @@ sizebefore: $(BUILD_DIR)/$(TARGET).elf
 	@echo "Size of $< (text=code, data=data, bss=uninitialized vars)"; $(SIZE) $(ELFSIZE_FLAGS)
 
 # Display hex size
-sizeafter: $(BUILD_DIR)/$(TARGET).hex
+sizeafter: $(OUT_DIR)/$(TARGET).hex
 	@echo "Size of $< (data=size of code+data uploaded to the AVR)"; $(SIZE) $(HEXSIZE_FLAGS)
 
 # Clean project.
 clean:
-	$(REMOVE) $(BUILD_DIR)/$(TARGET).hex $(BUILD_DIR)/$(TARGET).eep \
+	$(REMOVE) $(OUT_DIR)/$(TARGET).hex $(BUILD_DIR)/$(TARGET).eep \
 		$(BUILD_DIR)/$(TARGET).cof $(BUILD_DIR)/$(TARGET).elf $(BUILD_DIR)/$(TARGET).a \
 		$(BUILD_DIR)/$(TARGET).map $(BUILD_DIR)/$(TARGET).sym $(BUILD_DIR)/$(TARGET).lss \
-		$(OBJ) $(LST) $(SRC:.c=.s) $(SRC:.c=.d) $(CXXSRC:.cpp=.s) $(CXXSRC:.cpp=.d)
+		$(OBJ) $(LST) $(DEPENDS)
+	$(RMDIR) $(OUT_DIR) $(BUILD_DIR)
+
 
 # Targets that don't produce any file
 .PHONY:	typical elf hex eep lss sym program coff extcoff clean sizebefore sizeafter dump
@@ -147,51 +154,47 @@ clean:
 # Pattern rules
 
 # Create the Intel HEX file
-%.hex: %.elf
+$(OUT_DIR)/%.hex: $(BUILD_DIR)/%.elf
 	$(OBJCOPY) -O $(FORMAT) -R .eeprom $< $@
 
 # Create the eeprom contents file
-%.eep: %.elf
+$(BUILD_DIR)/%.eep: $(BUILD_DIR)/%.elf
 	-$(OBJCOPY) -j .eeprom --set-section-flags=.eeprom="alloc,load" \
 	--change-section-lma .eeprom=0 -O $(FORMAT) $< $@
 
 # Create .coff
-%.coff: %.elf
+$(BUILD_DIR)/%.coff: $(BUILD_DIR)/%.elf
 	$(OBJCOPY) $(OBJCOPY_FLAGS) -O coff-avr $< $@
 
 # Create .extcoff
-%.extcoff: %.elf
+$(BUILD_DIR)/%.extcoff: $(BUILD_DIR)/%.elf
 	$(OBJCOPY) $(OBJCOPY_FLAGS) -O coff-ext-avr $< $@
 
 # Create extended listing file from ELF output file.
-%.lss: %.elf
+$(BUILD_DIR)/%.lss: $(BUILD_DIR)/%.elf
 	$(OBJDUMP) -h -S $< > $@
 
 # Create a symbol table from ELF output file.
-%.sym: %.elf
+$(BUILD_DIR)/%.sym: $(BUILD_DIR)/%.elf
 	$(NM) -n $< > $@
 
 # Compile: create object files from C++ source files.
-%.o: %.cpp
+$(BUILD_DIR)/%.o: %.cpp
 	$(CXX) -c $(CXXFLAGS) $< -o $@ 
 
 # Compile: create object files from C source files.
-%.o: %.c
+$(BUILD_DIR)/%.o: %.c
 	$(CC) -c $(CFLAGS) $< -o $@ 
 
 # Compile: create assembler files from C source files.
-%.s: %.c
+$(BUILD_DIR)/%.s: %.c
 	$(CC) -S $(CFLAGS) $< -o $@
 
 # Assemble: create object files from assembler source files.
-%.o: %.S
+$(BUILD_DIR)/%.o: %.S
 	$(CC) -c $(ASFLAGS) $< -o $@
 
-# Automatic dependencies
-%.d: %.c
-	$(CC) -M $(CFLAGS) $< | sed "s;$(notdir $*).o:;$*.o $*.d:;" > $@
+$(BUILD_DIR)/%.d: %.cpp
+	$(CXX) -M $(CXXFLAGS) $< | sed "s;$(notdir $*).o:;$*.o $*.d:;" >$@
 
-%.d: %.cpp
-	$(CXX) -M $(CXXFLAGS) $< | sed "s;$(notdir $*).o:;$*.o $*.d:;" > $@
-
-include $(DEPENDS)
+-include $(DEPENDS)

@@ -7,6 +7,7 @@
 #include <avr/boot.h>
 #include <avr/wdt.h>
 #include <util/delay.h>
+#include "arch.h"
 
 #define UBRR                        16      //< 34 = 56.6K, 16 = 115.2K bps, 8 = 230.4K bps
 #define RX_BUFFER_LEN               1024    //< receive buffer length
@@ -105,7 +106,7 @@ ISR(USART_UDRE_vect)
  * Set the UART to 2x speed mode, 115.2K bauds, 8N1 and enable rx 
  * interrupts.
  */
-void uart_init()
+void uart_init(void)
 {
     // Set baud rate
     UBRR0H = (uint8_t) (UBRR >> 8);
@@ -145,7 +146,7 @@ void uart_send_byte(uint8_t c)
 /**
   * Flush the tx buffer.
   */
-void uart_flush()
+void uart_flush(void)
 {
     IDLE_WHILE(tx_tail != tx_head);
 }
@@ -179,7 +180,7 @@ void uart_send_int(uint16_t x)
  * Receive a byte.
  * @return an int16_t with the byte, or -1 if no data available
  */
-int16_t uart_recv_byte() 
+int16_t uart_recv_byte(void) 
 {
     if (rx_tail == rx_head)
         return -1;    // no data
@@ -196,7 +197,7 @@ int16_t uart_recv_byte()
  * Check if there is incoming data over the UART.
  * @return true if data available
  */
-int8_t uart_available()
+int8_t uart_available(void)
 {
     return (rx_tail != rx_head);
 }
