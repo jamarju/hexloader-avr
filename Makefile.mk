@@ -1,7 +1,7 @@
 ############################################################################
 # User-definable settings:
 
-OS = windows
+OS = osx
 
 ifeq ($(OS), linux)
 AVR_TOOLS_PATH = /usr/bin
@@ -120,10 +120,10 @@ upload: $(OUT_DIR)/$(TARGET).hex
 
 isp: $(OUT_DIR)/$(TARGET).hex
 	$(AVRDUDE) $(AVRDUDE_FLAGS) \
-	-U lock:w:0x3f:m \
+	-U lock:w:0xff:m \
 	-U flash:w:$(OUT_DIR)/$(TARGET).hex \
 	-U lfuse:w:$(LFUSE):m -U hfuse:w:$(HFUSE):m -U efuse:w:$(EFUSE):m \
-	-U lock:w:0x0f:m
+	-U lock:w:0xcf:m
 
 dump:
 	$(AVRDUDE) $(AVRDUDE_FLAGS) \

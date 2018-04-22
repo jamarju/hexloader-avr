@@ -1,6 +1,6 @@
 ROOT=.
-TARGET = test
-ASRC = $(wildcard *.S)
+TARGET = test-reboot
+SRC = $(wildcard *.c)
 TEXT_SECTION = 0x0000
 AVRDUDE_PROGRAMMER = arduino
 AVRDUDE_PORT = /dev/tty.usbmodem411
@@ -22,5 +22,5 @@ endif
 
 all: typical lss
 
-include ../Makefile.mk
+include ../../Makefile.mk
 

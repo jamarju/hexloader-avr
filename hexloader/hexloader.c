@@ -811,7 +811,7 @@ void __attribute__((noreturn)) bootloader(void)
     for (mode = MODE_FLASH; mode <= MODE_VERIFY; mode++) {
         if (mode == MODE_FLASH) {
             uart_send_string(P(
-                "AVR Hexloader " VERSION " git " GIT_VERSION "\r\n"
+                "AVR Hexloader " VERSION " git " GIT_VERSION " - http://github.com/jamarju/hexloader-avr\r\n"
                 "Paste your hex file, 'h' for help\r\n"));
         }
         else {

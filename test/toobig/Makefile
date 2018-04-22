@@ -1,5 +1,5 @@
 ROOT=.
-TARGET = test
+TARGET = test-toobig
 ASRC = $(wildcard *.S)
 TEXT_SECTION = 0x0000
 AVRDUDE_PROGRAMMER = arduino
@@ -22,5 +22,5 @@ endif
 
 all: typical lss
 
-include ../Makefile.mk
+include ../../Makefile.mk
 

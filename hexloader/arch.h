@@ -21,8 +21,8 @@ void power_init(void);
 
 typedef uint16_t addr_t;
 
-//#define S(x) ((addr_t)(const PROGMEM char *)(x)) 
-//#define R(x) pgm_read_byte_near(x)
+#define P(x) (x)
+#define R(x) pgm_read_byte_near(x)
 //#define RW(x) pgm_read_word_near(x)
 
 

@@ -2,13 +2,15 @@
 
 ![logo](logo/hexloader.png)
 
-This is an interactive bootloader for Atmega 328p and 2560 MCUs optimized for Bluetooth and other high latency links. It takes an .hex file pasted directly on a standard serial terminal like putty, cu, etc.
+This is an interactive bootloader for the Atmega328p and Atmega2560 MCUs optimized for Bluetooth and other high latency links. It takes an .hex file pasted directly on a standard serial terminal like putty, cu, etc.
 
 ## Example
 
 Open up a terminal emulator:
 
-	AVR Hexloader 1.1
+	$ cu -s 115200 -l /dev/tty.usbserial-A7004ncP
+	
+	AVR Hexloader 1.1 - http://github.com/jamarju/hexloader-avr
 	Paste your hex file, 'h' for help
 	>:
 
@@ -129,8 +131,11 @@ This will compile and try to flash using the programmer defined in `AVRDUDE_PROG
 
 There is also a precompiled version under hexloader/build.
 
+## Rolling back
 
-## How it works
+The [rollback](rollback) directory contains a few scripts to help putting the original bootloader back on the Arduino. Each script works for a specific set of Arduino flavors (Uno, Mega, Duemilanove, etc.), see the comments inside.
+
+## Under the hood
 
 Hexloader works by taking an Intel Hex file sent over the serial port. Hex files are the compilation output of Arduino or avr-gcc + objcopy. Pasting it directly on a terminal emulator flashes the chip. You can use any terminal like putty, screen, cu, hyperterminal, etc.
 
@@ -155,7 +160,7 @@ Checksum error in line:
 Rebooting into bootloader
 ```
 
-After receiving 128 bytes, the current page is erased and flashed while more data for the next page queues up.
+After receiving a full page (128 or 256 bytes depending on the AVR model), the current page is erased and flashed while more data for the next page queues up.
 
 ### Flow control
 
