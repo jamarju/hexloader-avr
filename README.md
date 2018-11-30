@@ -124,8 +124,23 @@ In `Makefile.mk`, set the `OS` variable to `windows`, `linux` or `osx` depending
 Then:
 
 ```
-make isp
+cd hexloader
 ```
+
+and:
+
+```
+make ARCH=328p isp
+```
+
+... for Arduino Uno, Nano and other Atmega328p based boards, or:
+
+```
+make ARCH=2560 isp
+```
+
+... for Arduino Mega, RobotDyn Mega or other Atmega2560 boards.
+
 
 This will compile and try to flash using the programmer defined in `AVRDUDE_PROGRAMMER` (avrisp2 by default).
 
